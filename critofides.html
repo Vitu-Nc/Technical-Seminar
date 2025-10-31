@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TSP — Christofides (Educational) in JavaScript</title>
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
+    color: var(--text); background: linear-gradient(180deg,#0b1024,#0f172a 40%,#0b1024);
+    display: grid; grid-template-columns: 320px 1fr; height: 100vh; overflow: hidden;
+  }
+  aside {
+    padding: 18px; background: var(--panel); border-right: 1px solid #1f2937; overflow:auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .muted { color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .btn {
+    background:#1f2937; color:#e5e7eb; border:1px solid #374151; padding:10px 12px; border-radius:10px; cursor:pointer;
+    transition: transform .06s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { background:#273042; }
+  .btn:active { transform: translateY(1px); }
+  .row { display:flex; gap:10px; margin:10px 0 12px; flex-wrap: wrap; }
+  .section { margin:16px 0; padding-top:6px; border-top:1px dashed #374151; }
+  label { display:flex; align-items:center; gap:8px; margin:6px 0; font-size: 14px; }
+  input[type="number"] { width: 90px; padding:8px; border-radius:8px; border:1px solid #374151; background:#0f172a; color:#e5e7eb; }
+  canvas { width: 100%; height: 100%; display: block; background: #0a0f23; }
+  .legend {
+    display:grid; grid-template-columns: 14px auto; gap:8px 10px; align-items:center; font-size:13px; margin-top:8px;
+  }
+  .box { width:14px; height:2px; background:#64748b; }
+  .mst { background:#22c55e; }
+  .match { background: repeating-linear-gradient(90deg,#f59e0b 0 3px, transparent 3px 6px); height:3px; }
+  .euler { background:#94a3b8; height:1px; }
+  .final { background:#60a5fa; height:3px; }
+  .pill { font-size:12px; color:#93c5fd; background:#0b2444; border:1px solid #113868; padding:4px 8px; border-radius:999px; display:inline-block; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+</style>
+</head>
+<body>
+  <aside>
+    <h1>Christofides TSP (JS)</h1>
+    <div class="muted">
+      Click on the canvas to add cities. Then press <b>Run Christofides</b>.
+      Toggle the overlays below to study each stage.
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <button id="runBtn" class="btn">▶ Run Christofides</button>
+        <button id="undoBtn" class="btn">↶ Undo</button>
+        <button id="clearBtn" class="btn">🗑 Clear</button>
+      </div>
+      <div class="row">
+        <input id="randN" type="number" min="3" max="300" value="20" />
+        <button id="randBtn" class="btn">🎲 Random</button>
+      </div>
+      <div class="muted">Tip: Add 10–150 points for a nice demo. Everything runs in your browser.</div>
+    </div>
+
+    <div class="section">
+      <div><span class="pill">Overlays</span></div>
+      <label><input type="checkbox" id="showMST" checked /> Show MST</label>
+      <label><input type="checkbox" id="showMatch" checked /> Show Matching</label>
+      <label><input type="checkbox" id="showEuler" /> Show Euler Tour</label>
+      <label><input type="checkbox" id="showFinal" checked /> Show Final Tour</label>
+    </div>
+
+    <div class="section">
+      <div><span class="pill">Stats</span></div>
+      <div class="muted mono" id="stats">Points: 0</div>
+    </div>
+
+    <div class="section">
+      <div><span class="pill">Legend</span></div>
+      <div class="legend">
+        <div class="box mst"></div><div>MST (Prim)</div>
+        <div class="box match"></div><div>Odd-set Greedy Matching</div>
+        <div class="box euler"></div><div>Euler Tour (multigraph)</div>
+        <div class="box final"></div><div>Final Hamiltonian Tour</div>
+      </div>
+    </div>
+
+    <div class="section muted" style="font-size:12px">
+      <b>Note:</b> For a strict 1.5-approx guarantee, replace the greedy matching with a Blossom-based MWPM.
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="canvas"></canvas>
+  </main>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // UI elements
+  const runBtn = document.getElementById('runBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const randBtn = document.getElementById('randBtn');
+  const randN = document.getElementById('randN');
+  const showMST = document.getElementById('showMST');
+  const showMatch = document.getElementById('showMatch');
+  const showEuler = document.getElementById('showEuler');
+  const showFinal = document.getElementById('showFinal');
+  const stats = document.getElementById('stats');
+
+  // State
+  let points = [];
+  let mstEdges = [];          // [{u,v}]
+  let deg = [];               // degree count in MST
+  let matching = [];          // [{u,v}]
+  let multigraph = null;      // adjacency with multiplicity: Array<Map<int,count>>
+  let eulerTour = [];         // [v0, v1, ..., vk]
+  let hamiltonian = [];       // cycle [v0,...,vn-1, v0]
+  let lengths = { mst:0, match:0, euler:0, cycle:0 };
+
+  // Resize canvas to device size
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // scale drawing by DPR
+    draw();
+  }
+  new ResizeObserver(resize).observe(canvas);
+
+  // Helpers
+  function dist(i, j) {
+    const dx = points[i].x - points[j].x;
+    const dy = points[i].y - points[j].y;
+    return Math.hypot(dx, dy);
+  }
+  function edgeLengthList(edges) {
+    let s = 0;
+    for (const e of edges) s += dist(e.u, e.v);
+    return s;
+  }
+
+  // Prim's MST (O(n^2))
+  function primMST() {
+    const n = points.length;
+    const inMST = Array(n).fill(false);
+    const key = Array(n).fill(Infinity);
+    const parent = Array(n).fill(-1);
+    key[0] = 0;
+
+    for (let it = 0; it < n; it++) {
+      // pick min key not in MST
+      let u = -1, best = Infinity;
+      for (let v = 0; v < n; v++) if (!inMST[v] && key[v] < best) {
+        best = key[v]; u = v;
+      }
+      if (u === -1) break;
+      inMST[u] = true;
+      // relax
+      for (let v = 0; v < n; v++) if (!inMST[v]) {
+        const w = dist(u, v);
+        if (w < key[v]) { key[v] = w; parent[v] = u; }
+      }
+    }
+    const edges = [];
+    for (let v = 1; v < n; v++) {
+      if (parent[v] !== -1) edges.push({u: v, v: parent[v]});
+    }
+    return edges;
+  }
+
+  // Find odd-degree vertices from MST
+  function oddVerticesFromMST(edges, n) {
+    const d = Array(n).fill(0);
+    for (const e of edges) { d[e.u]++; d[e.v]++; }
+    deg = d;
+    const odd = [];
+    for (let i = 0; i < n; i++) if (d[i] % 2 === 1) odd.push(i);
+    return odd;
+  }
+
+  // Greedy perfect matching on odd set (not MWPM, but simple & fast)
+  function greedyPerfectMatching(odd) {
+    const unmatched = new Set(odd);
+    const pairs = [];
+    while (unmatched.size > 1) {
+      // pick any v in unmatched
+      const it = unmatched.values();
+      const v = it.next().value;
+      unmatched.delete(v);
+      // find closest u in unmatched
+      let uBest = null, best = Infinity;
+      for (const u of unmatched) {
+        const w = dist(u, v);
+        if (w < best) { best = w; uBest = u; }
+      }
+      if (uBest == null) break;
+      unmatched.delete(uBest);
+      pairs.push({u: v, v: uBest});
+    }
+    return pairs;
+  }
+
+  // Build multigraph (adjacency maps with multiplicities)
+  function buildMultigraph(n, aEdges, bEdges) {
+    const adj = Array.from({length:n}, () => new Map());
+    function add(u,v) {
+      if (u === v) return;
+      adj[u].set(v, (adj[u].get(v) || 0) + 1);
+      adj[v].set(u, (adj[v].get(u) || 0) + 1);
+    }
+    for (const e of aEdges) add(e.u, e.v);
+    for (const e of bEdges) add(e.u, e.v);
+    return adj;
+  }
+
+  // Hierholzer's algorithm for Euler tour in multigraph
+  function eulerianTour(adj) {
+    // make a deep copy because we will consume edges
+    const n = adj.length;
+    const G = Array.from({length:n}, (_, i) => new Map(adj[i]));
+    // find a non-isolated start
+    let start = 0;
+    while (start < n && G[start].size === 0) start++;
+    if (start === n) return [];
+    const stack = [start];
+    const path = [];
+    while (stack.length) {
+      const v = stack[stack.length - 1];
+      if (G[v].size === 0) {
+        path.push(v);
+        stack.pop();
+      } else {
+        const [u, c] = G[v].entries().next().value;
+        // remove one copy of edge v-u
+        if (c === 1) { G[v].delete(u); } else { G[v].set(u, c-1); }
+        const cu = G[u].get(v);
+        if (cu === 1) { G[u].delete(v); } else { G[u].set(v, cu-1); }
+        stack.push(u);
+      }
+    }
+    return path.reverse(); // sequence of vertices
+  }
+
+  // Shortcut Euler to Hamiltonian cycle
+  function shortcutEulerToHamiltonian(path) {
+    const seen = new Set();
+    const order = [];
+    for (const v of path) {
+      if (!seen.has(v)) {
+        seen.add(v); order.push(v);
+      }
+    }
+    if (order.length > 0) order.push(order[0]); // close cycle
+    return order;
+  }
+
+  // Run Christofides pipeline end-to-end
+  function runChristofides() {
+    if (points.length < 3) return;
+
+    mstEdges = primMST();
+    lengths.mst = edgeLengthList(mstEdges);
+
+    const odd = oddVerticesFromMST(mstEdges, points.length);
+    matching = greedyPerfectMatching(odd);
+    lengths.match = edgeLengthList(matching);
+
+    multigraph = buildMultigraph(points.length, mstEdges, matching);
+
+    eulerTour = eulerianTour(multigraph);
+    // Euler "length" (sum along the tour) is not critical; we won’t display it.
+
+    hamiltonian = shortcutEulerToHamiltonian(eulerTour);
+    // compute final tour length
+    let L = 0;
+    for (let i = 0; i+1 < hamiltonian.length; i++) {
+      L += dist(hamiltonian[i], hamiltonian[i+1]);
+    }
+    lengths.cycle = L;
+
+    draw();
+  }
+
+  // Drawing utilities
+  function clearCanvas() {
+    ctx.clearRect(0,0,canvas.clientWidth, canvas.clientHeight);
+    // background
+    ctx.fillStyle = '#0a0f23';
+    ctx.fillRect(0,0,canvas.clientWidth, canvas.clientHeight);
+  }
+  function drawEdges(edges, style = {}) {
+    if (!edges || edges.length === 0) return;
+    ctx.save();
+    ctx.lineWidth = style.lineWidth ?? 2;
+    ctx.strokeStyle = style.strokeStyle ?? '#94a3b8';
+    if (style.dash) ctx.setLineDash(style.dash);
+    ctx.beginPath();
+    for (const e of edges) {
+      const a = points[e.u], b = points[e.v];
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawPolyline(order, style = {}) {
+    if (!order || order.length < 2) return;
+    ctx.save();
+    ctx.lineWidth = style.lineWidth ?? 2.5;
+    ctx.strokeStyle = style.strokeStyle ?? '#60a5fa';
+    if (style.dash) ctx.setLineDash(style.dash);
+    ctx.beginPath();
+    const a = points[order[0]];
+    ctx.moveTo(a.x, a.y);
+    for (let i = 1; i < order.length; i++) {
+      const b = points[order[i]];
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawPoints() {
+    ctx.save();
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      // node
+      ctx.beginPath();
+      ctx.fillStyle = '#e5e7eb';
+      ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.fill();
+      // label
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText(String(i), p.x + 6, p.y - 6);
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    clearCanvas();
+    // overlays
+    if (showEuler.checked && eulerTour.length > 1) {
+      drawPolyline(eulerTour, { strokeStyle:'#94a3b8', lineWidth:1.25 });
+    }
+    if (showMST.checked && mstEdges.length) {
+      drawEdges(mstEdges, { strokeStyle:'#22c55e', lineWidth:2 });
+    }
+    if (showMatch.checked && matching.length) {
+      drawEdges(matching, { strokeStyle:'#f59e0b', lineWidth:2, dash:[6,6] });
+    }
+    if (showFinal.checked && hamiltonian.length > 1) {
+      drawPolyline(hamiltonian, { strokeStyle:'#60a5fa', lineWidth:3 });
+    }
+    drawPoints();
+    updateStats();
+  }
+
+  function updateStats() {
+    const n = points.length;
+    let txt = `Points: ${n}`;
+    if (hamiltonian.length) {
+      txt += `  |  Final length: ${lengths.cycle.toFixed(2)}`;
+    }
+    if (mstEdges.length) txt += `  |  MST: ${lengths.mst.toFixed(2)}`;
+    if (matching.length) txt += `  |  Match: ${lengths.match.toFixed(2)}`;
+    stats.textContent = txt;
+  }
+
+  // Interactions
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left);
+    const y = (e.clientY - rect.top);
+    points.push({x, y});
+    // reset computed artifacts
+    mstEdges = []; matching = []; multigraph = null; eulerTour = []; hamiltonian = [];
+    draw();
+  });
+
+  runBtn.addEventListener('click', runChristofides);
+  undoBtn.addEventListener('click', () => {
+    if (points.length) points.pop();
+    mstEdges = []; matching = []; multigraph = null; eulerTour = []; hamiltonian = [];
+    draw();
+  });
+  clearBtn.addEventListener('click', () => {
+    points = [];
+    mstEdges = []; matching = []; multigraph = null; eulerTour = []; hamiltonian = [];
+    lengths = { mst:0, match:0, euler:0, cycle:0 };
+    draw();
+  });
+  randBtn.addEventListener('click', () => {
+    const n = Math.max(3, Math.min(300, Number(randN.value) || 20));
+    // generate inside canvas with padding
+    const pad = 24;
+    points = [];
+    const W = canvas.clientWidth - 2*pad, H = canvas.clientHeight - 2*pad;
+    for (let i = 0; i < n; i++) {
+      points.push({
+        x: pad + Math.random() * W,
+        y: pad + Math.random() * H
+      });
+    }
+    mstEdges = []; matching = []; multigraph = null; eulerTour = []; hamiltonian = [];
+    draw();
+  });
+
+  [showMST, showMatch, showEuler, showFinal].forEach(chk => {
+    chk.addEventListener('change', draw);
+  });
+
+  // Initial layout
+  // Seed a small example for first paint
+  function seedExample() {
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    points = [
+      {x: 0.18*W, y: 0.25*H},
+      {x: 0.35*W, y: 0.15*H},
+      {x: 0.65*W, y: 0.20*H},
+      {x: 0.80*W, y: 0.35*H},
+      {x: 0.72*W, y: 0.70*H},
+      {x: 0.40*W, y: 0.80*H},
+      {x: 0.20*W, y: 0.60*H}
+    ];
+  }
+  // Wait one frame so canvas sizing is correct
+  requestAnimationFrame(() => { seedExample(); draw(); });
+})();
+</script>
+</body>
+</html>
