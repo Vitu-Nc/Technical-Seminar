@@ -1,0 +1,63 @@
+# Project Progress Notes  
+**Project:** Traveling Salesman Problem (TSP) – Christofides Algorithm GUI  
+**Language:** JavaScript (HTML Canvas)  
+**Student:** Vitumbiko J Banda
+**Date Started:** 22/10/25
+**Repository:** https://github.com/Vitu-Nc/TSP-Christofides  
+
+---
+
+### 🧩 Week 1 – Initial Setup
+- Created a new HTML file `tsp_christofides.html`
+- Implemented a responsive canvas and control sidebar
+- Added ability to place cities by clicking on the canvas
+- Added “Run Christofides”, “Undo”, “Clear”, and “Random” buttons
+
+**Challenges:** Learning basic canvas drawing and event handling  
+**Next:** Implement MST logic using Prim’s algorithm
+
+---
+
+### ⚙️ – MST Implementation
+- Added distance calculation between all city pairs
+- Implemented Prim’s algorithm to build the **Minimum Spanning Tree (MST)**
+- Visualized MST in **green lines**
+- Verified that tree connects all cities without forming cycles
+
+**Next:** Detect odd-degree vertices and perform matching
+
+---
+
+### 🔶 Week 2 – Odd Vertices & Matching
+- Identified all vertices with **odd degree** in MST
+- Implemented **greedy matching** to connect odd vertices (orange dashed lines)
+- Verified that all vertices now have even degree
+
+**Next:** Generate Eulerian tour of multigraph
+
+---
+
+### 🔁 – Euler Tour & Shortcut
+- Implemented **Hierholzer’s Algorithm** to produce Euler tour (gray path)
+- Added **shortcutting step** to form Hamiltonian cycle (blue path)
+- Calculated final tour distance and displayed statistics
+
+**Next:** Improve UI toggles and optimize edge drawing
+
+---
+
+### 💡 Week 3 – User Interface & Documentation
+- Added checkboxes to toggle visibility of MST, Matching, Euler, and Final Tour
+- Added **Stats Panel** showing total points and tour lengths
+- Added tooltips and progress notes for each step
+- Created `PROGRESS.md` file for tracking updates
+
+**Next:** Prepare presentation slides and GitHub Pages deployment
+
+---
+
+### 🪜 Future Enhancements
+- Replace greedy matching with exact Blossom algorithm for true MWPM
+- Add “Auto-animate” mode showing each phase dynamically
+- Add data export to CSV (list of tour coordinates)
+- Integrate with AI optimization (optional extension)
